@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}${{ matrix.latest && ' (latest deps)' || '' }}
+    runs-on: ubuntu-latest
+    # The latest-deps job is an early warning for upcoming upstream changes; it
+    # does not fail the run. The pinned jobs are the supported configuration.
+    continue-on-error: ${{ matrix.latest }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+        latest: [false]
+        include:
+          - python-version: "3.13"
+            latest: true
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            python/pyproject.toml
+            python/constraints.txt
+      # pyodbc needs the unixODBC driver manager at import time. No CONNX driver
+      # is installed; the tests replace the database layer with test doubles.
+      - name: Install unixODBC
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends unixodbc
+      - name: Install package (pinned)
+        if: ${{ !matrix.latest }}
+        run: python -m pip install -c constraints.txt -e ".[dev]"
+      - name: Install package (latest allowed by pyproject.toml)
+        if: ${{ matrix.latest }}
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check --output-format=github .
+      - name: Pytest
+        run: pytest -q
+
+  dotnet:
+    name: .NET build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dotnet
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet build --configuration Release
+
+  java:
+    name: Java compile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: java
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - run: mvn --batch-mode compile

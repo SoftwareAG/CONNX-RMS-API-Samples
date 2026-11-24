@@ -1,0 +1,6 @@
+# Store text files consistently in the repository regardless of host OS.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
